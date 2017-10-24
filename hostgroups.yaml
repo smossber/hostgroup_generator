@@ -1,0 +1,57 @@
+---
+
+:categories:
+  start:
+    - OrganizationName:
+  site-dcd:
+    - CB-DCD01:
+        location: "CB"
+        content_source: 
+    - CB-DCD02:
+        location: "CB"
+    - HH-DCD01:
+        location: "HH"
+    - HH-DCD02:
+        location: "HH"
+  
+  baseline_envs:
+    - TEST:
+        lifecycle_environment: "TEST"
+    - DEV:
+        lifecycle_environment: "DEV"
+    - PROD:
+        lifecycle_environment: "PROD"
+    - PREPROD:
+        lifecycle_environment: "PREPROD"
+
+  rhel_types:
+    - rhel6:
+        content_view: "CV-RHEL6" 
+    - rhel7:
+        content_view: "CV-RHEL7"
+
+  hadoop_envs:
+    - hadoop_test:
+        lifecycle_environment: "HADOOP-TEST"
+        content_view: "CV-CAPSULE"
+
+
+:tree:
+  start:
+    site-dcd:
+      - baseline_envs:
+          rhel_types:
+            - end
+      - hadoop_envs:
+          rhel_types:
+            - end
+
+
+# NEED SOME WAY TO ADD SPECIFICS TO A COMBO
+# # FOR INSTANCE: 
+# # if HG~= DCD01-CB-TEST
+# # should have a specific Capsule!
+#
+#
+
+
