@@ -30,7 +30,7 @@ require 'rest-client'
 @defaults = {
   :noop        => false,
   :keep        => 5,
-  :uri         => 'https://is-sat1t',
+  :uri         => 'https://localhost',
   :timeout     => 300,
   :user        => 'admin',
   :pass        => nil,
@@ -101,14 +101,27 @@ optparse = OptionParser.new do |opts|
   opts.on("--checkrepos", "check repository content was changed before publish") do
     @options[:checkrepos] = true
   end
-  opts.on("--verbose", "Get verbose logs from cvmanager") do
+  opts.on("-v", "--verbose", "Get verbose logs from cvmanager") do
+    @options[:verbose] = true
+  end
+  opts.on("--very-verbose", "Get very verbose logs") do
+    @options[:very_verbose] = true
     @options[:verbose] = true
   end
   opts.on("--no-verify-ssl", "don't verify SSL certs") do
     @options[:verify_ssl] = false
   end
-  opts.on("-t", "--teardown", "Teardown only. Teardown always happens on a new run, but this will leave the config blank") do
+  opts.on("-t", "--teardown", "Remove all hostgroups before creating them anew.") do
     @options[:teardown] = true
+  end
+  opts.on("--skip-creation", "Skip creation of hostgroup tree, just display how it would be") do
+    @options[:skip_creation] = true
+  end
+  opts.on("--skip-combos", "Skip the hostgroup update with the combinations") do
+    @options[:skip_combos] = true
+  end
+  opts.on("-u", "--update", "Update hostgroups that already exists") do
+    @options[:update] = true
   end
 end
 optparse.parse!
@@ -147,7 +160,12 @@ end
 
 # Set up the connection
 # Uses username and password
-@api = ApipieBindings::API.new({:uri => @options[:uri], :username => @options[:user], :password => @options[:pass], :api_version => '2', :timeout => @options[:timeout]}, {:verify_ssl => @options[:verify_ssl]})
+if @options[:very_verbose]
+	puts "VERY VERBOSE INDEEEED"
+	@api = ApipieBindings::API.new({:uri => @options[:uri], :username => @options[:user], :password => @options[:pass], :api_version => '2', :timeout => @options[:timeout], :logger => Logging.logger(STDOUT)}, {:verify_ssl => @options[:verify_ssl]})
+else
+	@api = ApipieBindings::API.new({:uri => @options[:uri], :username => @options[:user], :password => @options[:pass], :api_version => '2', :timeout => @options[:timeout]}, {:verify_ssl => @options[:verify_ssl]})
+end
 
 # To print debug logging of the connection to STDOUT
 # use following 
@@ -213,73 +231,204 @@ puts "Categories:"
   puts category[0]
 end
 
+            # Workaround for Activation Keys
+            # This is a host param ['kt_activation_keys']
+            # If it's already present, it needs to be updated
+
+def update_activation_keys(hostgroup_id, activation_keys)
+    
+    if activation_keys.is_a?(Array)
+        activation_keys = activation_keys.join(",")
+    end
+    puts "Trying to update or create activation key #{activation_keys} for HG_ID #{hostgroup_id}"
+
+    req = @api.call(:hostgroups, :show , {:organization_id => @options[:org], :id => hostgroup_id.to_i }) 
+    puts_verbose "Current parameters for hostgroup (#{hostgroup_id}):"
+    puts_verbose req['parameters']
+
+    param_activation_key = req['parameters'].select {|param| param['name'] == 'kt_activation_keys' }
+    if req['parameters'].empty? or param_activation_key.empty?
+        puts_verbose( "No param kt_activation_key present.. creating key")
+        req = @api.call(:parameters , :create , { :hostgroup_id => hostgroup_id.to_i, :parameter => { :name => 'kt_activation_keys', :value => activation_keys }}) 
+        puts_verbose("added key")
+
+    else
+        param_activation_key = param_activation_key.first
+        puts_verbose("Current param kt_activation_keys")
+        puts_verbose("It has ID: #{param_activation_key['id']}")
+        puts "Updating activation_key to #{activation_keys}"
+        req = @api.call(:parameters , :update , { :hostgroup_id => hostgroup_id.to_i, :id => param_activation_key['id'].to_i , :parameter => { :name => 'kt_activation_keys', :value => activation_keys }}) 
+        puts "Done"
+    end
+
+end
+
+def assemble_hostgroup(name, properties=nil, parent_id = nil)
+    puts_verbose("assembling hostgroup #{name}")
+    hostgroup = {}
+    hostgroup[:name] = name
+    if properties.is_a?(Hash)
+        puts_verbose("Got props")
+        
+        puts_verbose("fetching property id's")
+        properties.each do |key, value|
+            prop_id = get_property_id(key,value)
+            if key == 'installation_media' or key == 'media'
+                key = 'medium_id'
+            end
+            # Workaround for Lifecycle Environments.
+            # Only one that expects a hash and plural key
+            if key == 'location'
+                key = 'location_ids'
+                prop_id = [prop_id]
+            elsif not key.end_with? '_id'
+                key = key + '_id'	
+            end
+            hostgroup[key] = prop_id
+        end
+  
+        if not parent_id.nil?
+            puts_verbose("Got parent")
+            puts_verbose("parent_id: #{parent_id}")
+            hostgroup['parent_id'] = parent_id
+        end
+    end
+    return hostgroup
+end
 
 # properties must be a Hash
 def create_hostgroup(name, properties=nil, parent_id = nil)
-  puts_verbose("Entering Create Hostgroup()")
-  puts_verbose("#{name}")
-  puts_verbose("#{properties}")
-  puts_verbose("#{parent_id}")
-  if not properties.nil? 
-    if properties.is_a?(Hash)
-      puts_verbose("Got props")
-      hostgroup = {}
-      hostgroup[:name] = name
-      
-      properties.each do |prop|
-        key, value = prop
-        prop_id = get_property_id(key,value)
-	# Workaround for Lifecycle Environments.
-	# Only one that expects a hash and plural key
-        if key == 'location'
-          key = 'location_ids'
-          prop_id = [prop_id]
-	elsif not key.end_with? '_id'
-	  key = key + '_id'	
-        end
-        hostgroup[key] = prop_id
-      end
+    puts_verbose("create_hostgroup()")
+    puts_verbose("name: #{name}")
+    puts_verbose("properties #{properties}")
+    puts_verbose("parent_id #{parent_id}")
 
-      if not parent_id.nil?
-        puts_verbose("Got parent")
-        puts_verbose("parent_id: #{parent_id}")
-        hostgroup['parent_id'] = parent_id
-      end
+    activation_key = ""
+    if properties.key?('activation_key')
+        activation_key = propertes['activation_key']
+        properties.delete(:activation_key)
     end
+
+    
+    hostgroup = assemble_hostgroup(name, properties, parent_id)
     puts_verbose( "Serializing Hostgroup")
-    req = @api.resource(:hostgroups).call(:create, {:organization_id => @options[:org], :hostgroup => hostgroup } )
-    return req['id']
-  else
-    req = @api.resource(:hostgroups).call(:create, {:organization_id => @options[:org], :hostgroup => { :name => name} } )
-    return req['id']
-  end
+    # Try creating the hostgroup
+    begin
+        req = @api.resource(:hostgroups).call(:create, {:organization_id => @options[:org], :hostgroup => hostgroup } )
+        if not activation_key.empty?
+            update_activation_keys(req['id'], activation_key)
+        end
+
+        return req['id']
+
+    # If the Hostgroup already exists, we want to update it.
+    rescue RestClient::UnprocessableEntity
+        if @options[:update]
+            puts_verbose("Updating HG")
+            hg_id = nil
+            if not hostgroup['parent_id'].nil?
+     	        puts_verbose("Got parent id, will look up it's title")
+                parent = get_hostgroup_by_id(hostgroup['parent_id'])
+                puts_verbose("PARENT TITLE: #{parent['title']}")
+                hg_id = get_property_id('hostgroup', "#{parent['title']}/#{name}", "title")
+            else
+                # must be the first one, so should be safe to search for title = name
+                hg_id = get_property_id("hostgroup", name, "title")
+            end
+            if hg_id.nil?
+        		fail "No HG ID to update"
+       	    end
+       	    req = @api.resource(:hostgroups).call(:update, {:organization_id => @options[:org],:id => hg_id, :hostgroup => hostgroup } )
+    		return req['id']
+        else
+        	fail "Hostgroup #{name} already exists, either specify --teardown or --update to overwrite existing Hostgroups"
+        end
+    end
+end
+def update_hostgroup_properties(id, properties)
+    
+    # Fetch existing Hostgroup
+    current_hostgroup = get_hostgroup_by_id(id)
+    puts_verbose("Updating Hostgroup #{current_hostgroup['name']}")
+
+    activation_key = ""
+    if properties.key?('activation_key')
+        activation_key = properties['activation_key']
+        properties.delete('activation_key')
+    end
+
+    new_hostgroup = assemble_hostgroup(current_hostgroup['name'], properties)
+	puts_verbose("properties recieved #{properties}")
+	puts_verbose("new hostgroup:")
+	puts_verbose(new_hostgroup)
+	req = @api.resource(:hostgroups).call(:update, {:organization_id => @options[:org],:id => id, :hostgroup => new_hostgroup } )
+    if not activation_key.empty?
+        update_activation_keys(req['id'], activation_key)
+    end
 end
 
-def get_property_id(property_type, value)
-  puts_verbose("fetching id for property #{property_type} = #{value}")
-  property = [] 
-  if property_type == 'content_source'
-    property_type = "capsule"
-  end
-  if not property_type.end_with? 's'
-    property_type = property_type + "s"
-  end
-  property_type = property_type.to_sym
-  puts_verbose(property_type)
-  begin
-	  req = @api.call(property_type,:index, {:organization_id => @options[:org], :full_results => true, :search => "==#{value}"}) 
-	  property.concat(req['results']) 
-  rescue NameError
-    fail "Resource #{property_type} does not exist. Edit your yaml file and change #{property_name} to something that fits the API doc resources"
-  end
-  if property.size > 2 
-    fail "Too many results for search #{property_type} == #{value}, try to narrow the search down" 
-  elsif property.size < 1  
-    fail "No instance #{property_type} named #{value} found" 
-  elsif property.size == 1 
-    return property.first['id']
-  end 
-  # puts JSON.pretty_generate(property) 
+def get_property_id(property_type, value, column=nil)
+    puts_verbose("fetching id for property #{property_type} = #{value}")
+    
+    if value.nil?
+        fail "Must specify a search value (get_property_id)"
+    end
+    if not  column.nil? 
+        puts_verbose("specified search column: #{column}")
+    end 
+
+    property = [] 
+    if property_type == 'content_source'
+        property_type = "capsule"
+    end
+    if not property_type.end_with?('s')
+        property_type = property_type + "s"
+    end
+    if property_type == 'installation_medias' or property_type == 'medias'
+        property_type = "media"
+    end
+    property_type = property_type.to_sym
+
+    begin
+        if not column.nil?
+            req = @api.call(property_type,:index, {:organization_id => @options[:org], :search => "#{column}=#{value}"}) 
+        else
+            req = @api.call(property_type,:index, {:organization_id => @options[:org], :search => "==#{value}"}) 
+        end
+        property.concat(req['results']) 
+    
+    rescue NameError
+        fail "Resource #{property_type} does not exist. Edit your yaml file and change #{property_type} to something that fits the API doc resources"
+
+    rescue RestClient::InternalServerError 
+        puts_verbose("Allright, search didn't work, try..")
+        puts_verbose("Try with API v1")
+        begin
+            if @options[:very_verbose]
+                @api_v1 = ApipieBindings::API.new({:uri => @options[:uri], :username => @options[:user], :password => @options[:pass], :api_version => '1', :timeout => @options[:timeout], :logger => Logging.logger(STDOUT)}, {:verify_ssl => @options[:verify_ssl]})
+            else
+                @api_v1 = ApipieBindings::API.new({:uri => @options[:uri], :username => @options[:user], :password => @options[:pass], :api_version => '1', :timeout => @options[:timeout]}, {:verify_ssl => @options[:verify_ssl]})
+            end
+    
+            req = @api_v1.call(property_type,:index, {:organization_id => @options[:org], :search => value }) 
+            property = req
+        rescue  RestClient::InternalServerError => e 
+            puts "Something went wrong communicating with Satellite API"
+            puts e.message
+            fail
+        end
+    end
+    if property.size > 1 
+        fail "Too many results for search #{property_type} == #{value}, try to narrow the search down" 
+
+    elsif property.size < 1  
+        fail "No instance #{property_type} named #{value} found" 
+
+    elsif property.size == 1 
+        return property.first['id']
+
+    end 
+# puts JSON.pretty_generate(property) 
 end 
 
 def get_hostgroup(name)
@@ -318,9 +467,12 @@ def get_all_hostgroups
   return hostgroups
 end
 def get_hostgroup_by_id(id)
-  hostgroup = []
-  req = @api.resource(:hostgroups).call(:index, {:organization_id => @options[:org], :full_results => true,:id => id})
-  hostgroup.concat(req['results'])
+  puts_verbose("get_hostgroup_by_id(#{id})")
+  hostgroups = []
+  hostgroup = @api.resource(:hostgroups).call(:show, {:organization_id => @options[:org], :full_results => true,:id => id})
+  puts_verbose("hostgroup")
+  puts_verbose(hostgroup)
+  puts_verbose("leaving")
   return hostgroup
 end
 
@@ -348,10 +500,8 @@ if @yaml.has_key?(:tree) and @yaml[:tree].is_a?(Hash)
   end
 end
 
-puts "## TREE STRUCTURE ##"
 #set_tree_structure(tree)
 
-teardown
 
 
 def loop_branch(hash, deep, parent_id=nil) 
@@ -362,22 +512,26 @@ def loop_branch(hash, deep, parent_id=nil)
     @categories[branch_root].each do |hg_hash| 
       # <- should be an array of hash 
       # e.g. site:  <-- array 
-      #       - CB <-- Hash,       Key 
-      #           location: "CB" , Value  
-      #       - HH                 KEY 
-      #           location: "HH"   Value 
+      #       - DC01 <-- Hash,       Key 
+      #           location: "DC01" , Value  
+      #       - DC02                 KEY 
+      #           location: "DC02"   Value 
       if hg_hash.is_a?(Hash) 
         hg_name, hg_props = hg_hash.first 
 
 
       # But sometimes it's not, when theres no properties assigned to the HG 
-      # eg. DCD 
       elsif hg_hash.is_a?(String) 
         hg_name = hg_hash 
         hg_props = nil
       end 
-      created_hg_id = create_hostgroup(hg_name,hg_props,parent_id)
-      puts "#{space}#{hg_name}(#{created_hg_id}), parent-id: #{parent_id}" 
+        if not @options[:skip_creation]
+            created_hg_id = create_hostgroup(hg_name,hg_props,parent_id)
+            puts "#{space}#{hg_name}(#{created_hg_id}), parent-id: #{parent_id}" 
+        else
+            puts "#{space}#{hg_name}" 
+        
+        end
       # no deeper category
       if branch_arm.nil? 
         break 
@@ -392,7 +546,112 @@ def loop_branch(hash, deep, parent_id=nil)
     end  
   end 
 end 
-deep = 0  
-loop_branch(tree, deep ) 
+
+# Teardown the Hostgroup tree before creating anew
+if @options[:teardown]
+	teardown
+end
+
+# Start Hostgroup Loop
+    deep = 0  
+    loop_branch(tree, deep ) 
+
+@hostgroups = []
+@hostgroups = get_all_hostgroups
+def find_matching_hostgroups(combo)
+	if combo.is_a?(Array)
+        combo_hostgroups = []
+        combo_count = combo.count
+
+        criteria_arrays = []
+
+        combo.each do |combination|
+            if combination.is_a?(Array)
+                criteria_arrays << combination
+            else
+                array = [combination]
+                criteria_arrays << array
+            end
+        end
+
+        puts "Criteria_arrays"
+        criteria_arrays.each do |crit_combo|
+            puts "#{crit_combo}"
+        end
+        # MAGIC!
+        prod = criteria_arrays[0].product(*criteria_arrays[1..-1])
+        i=1
+        prod.each do |comb|
+            puts "Combination (#{i}): #{comb}"
+            i = i + 1
+        end
+
+		#if combo.any? { |combination| combination.is_a?(Array) }
+    	@hostgroups.each do |hostgroup|
+		#if hostgroup['title'].include?(combo.to_s)
+		    prod.each do |comb|
+    			if comb.all? { |word| hostgroup['title'].include?("/#{word}") }
+	    			puts_verbose("#{hostgroup['id']}:#{hostgroup['title']} match with #{comb}")
+    	    		combo_hostgroups << hostgroup
+    		    end
+            end
+		end
+		return combo_hostgroups
+	else
+		fail "find_matching_hostgroups needs an Array"
+	end
+end
+
+
+def combos()
+    @combos = []
+    if @yaml.has_key?(:combos) and @yaml[:combos].is_a?(Array)
+        puts "Combos:"
+        puts "======"
+        @yaml[:combos].each do |combo|
+            puts ""
+            puts "# #{combo['name']}"
+            combo_hostgroups = []
+            properties = {}
+            combo.each do |combo_key,combo_val|
+                if combo_key != 'name' and combo_key == 'categories'
+                    puts "Categories to match:"
+                    combo_array = []
+                    combo_val.each do |cat|
+                        cat_name, cat_value = cat.first
+                        puts "- #{cat_name}: #{cat_value}"
+                        combo_array << cat_value
+                    end
+                    combo_hostgroups = find_matching_hostgroups(combo_array)
+
+                    puts ""
+                    puts "Matching Hostgroups"
+                    combo_hostgroups.each do |hg|
+                        puts "- " + hg['title']
+                    end
+                end
+                if combo_key == 'parameters'
+                    puts ""
+                    puts "Should get:"
+                    combo_val.each do |prop|
+                        prop_name, prop_value = prop.first
+                        puts "#{prop_name}: #{prop_value}"
+                        properties[prop_name] = prop_value
+                    end
+                end
+            end # combo.each 
+
+            puts ""
+            combo_hostgroups.each do |hostgroup|
+                puts "#{hostgroup['title']} #{hostgroup['id']} updating with #{properties}"
+                update_hostgroup_properties(hostgroup['id'], properties)
+            end
+        end
+    end
+end
+if not @options[:skip_combos]
+    combos
+end
+
 
 

@@ -1,18 +1,62 @@
 ---
 
+# This file describes what Hostgroup Types should exist, and in what order
+# in the Hostgroup tree they should exist
+#
+# Since a hostgroup can inherit properties from it's parent
+# It often makes sense to put the more global/wide parameters that should 
+# apply to many higher up in the hiearachy.
+#
+#
+
+# CATEGORIES / LEVELS
+# ===================
+# Here we define the different "types" of hostgroups
+# As a first level we could for example set an organization level, where we set
+# properties that should apply to all Hostgroups.
+# In the example below we set the content source to be the Satellite internal Capsule, as
+# we don't have any Capsules and we know all hostgroups should use this property.
+# 
+# org: 
+#   - my_organization:
+#       content_source: "satellite.example.org"
+#
+#
+# Another level/type/category could be a Lifecycle Environment level.
+# We have 3 different Lifecycle Environments (DEV , TEST, PROD)
+# For each we want to set a different lifecycle_environment property
+# Lets name it env:
+#
+# env:
+#   - DEV:
+#       lifecycle_environment: "DEV"
+#   - TEST:
+#       lifecycle_environment: "TEST"
+#   - PROD:
+#       lifecycle_environment: "PROD"
+#
+# We add another level where we have the different OS versions we are planning to run.
+# In our org we only use RHEL6 and RHEL7 and we have two
+# different Content Views created for these (CV-RHEL6 and CV-RHEL7)
+# Lets name the category rhel_os:
+#
+# rhel_os:
+#   - RHEL7:
+#       - content_view: "CV-RHEL7"
+#   - RHEL6:
+#       - content_view: "CV-RHEL6"
+#
+
 :categories:
-  start:
-    - OrganizationName:
-  site-dcd:
-    - CB-DCD01:
-        location: "CB"
-        content_source: 
-    - CB-DCD02:
-        location: "CB"
-    - HH-DCD01:
-        location: "HH"
-    - HH-DCD02:
-        location: "HH"
+  org:
+    - Organization:
+        content_source: "satellite.example.org"
+  location:
+    - DC01:
+        location: "DC01"
+    - DC02:
+        location: "DC02"
+    
   
   baseline_envs:
     - TEST:
@@ -27,31 +71,241 @@
   rhel_types:
     - rhel6:
         content_view: "CV-RHEL6" 
+        architecture: "x86_64"
+        operatingsystem: "RedHat 6.9"
+        installation_media: "MyOrganization/Library/Red_Hat_Server/Red_Hat_Enterprise_Linux_6_Server_Kickstart_x86_64_6_9"
     - rhel7:
         content_view: "CV-RHEL7"
+        architecture: "x86_64"
+        operatingsystem: "RHEL Server 7.4"
+        installation_media: "MyOrganization/Library/Red_Hat_Server/Red_Hat_Enterprise_Linux_7_Server_Kickstart_x86_64_7_4"
 
-  hadoop_envs:
-    - hadoop_test:
-        lifecycle_environment: "HADOOP-TEST"
-        content_view: "CV-CAPSULE"
+  app1_envs:
+    - APP1-TEST:
+        lifecycle_environment: "APP1-TEST"
+        
 
-
+# TREE
+# ====
+# When we've created all levels/categories/ variations we need, we have to build the tree
+# The tree specifies in what order the Hostgroups should be created
+# and what category should inherit from which.
+#
+# We pull in the categories created in the previous :categories: section
+#
+# Example:
+# :tree:
+#    org:
+#      env:
+#        rhel_os:
+#          - end
+#    
+# This would create all the instances of the Category Org.
+# In the example we only have one!
+# So this would create the Hostgroup "my_organization"
+#
+# |- my_organization
+#
+# Next up is the "env" category.
+# We have three different instances of the "env" category,
+# so this would create a three instances "DEV", "TEST", "PROD"
+# that inherits from their parent "my_organization"
+#
+# |_ my_organization
+#    |_ DEV
+#    |_ TEST
+#    |_ PROD
+#
+# Next up is the "rhel_os" category.
+# We have two different instances of this.
+# "RHEL6" and "RHEL7".
+#
+# We want there these to inherit from each Lifecycle Environment
+# So we get both a DEV/RHEL6 and DEV/RHEL7, aswell as the remaining Lifecycle Environments
+# (TEST/RHEL6, TEST/RHEL7, PROD/RHEL6 and PROD/RHEL7)
+#
+# |_ my_organization
+#    |_ DEV
+#       |_ RHEL6
+#       |_ RHEL7
+#    |_ TEST
+#       |_ RHEL6
+#       |_ RHEL7
+#    |_ PROD
+#       |_ RHEL6
+#       |_ RHEL7
+#
+#  Great Stuff! 
+#
+#  Now say that you would want to separate at some point, say for instance
+#  that you have another independent Lifecycle Path with it's own Content View or set of Content Views.
+#  This Lifecycle Path and the Content View is dedicated for a single application for instance, and
+#  when we provision the app servers, we need a separate set of hostgroups.
+#
+#  In the example we only have one Content View for APP1
+#  Se actually don't need to separate the lifecycle environment from the content in different content view levels.
+#
+#  We first add the category:
+#  :categories:
+#    app1_env:
+#      - "APP1-DEV"
+#          lifecycle_environment: "APP1-DEV"
+#          content_view: "CV-APP1"
+#      - "APP1-TEST"
+#          lifecycle_environment: "APP1-TEST"
+#          content_view: "CV-APP1"
+#      - "APP1-PROD"
+#          lifecycle_environment: "APP1-PROD"
+#          content_view: "CV-APP1"
+#
+# And then in our tree, we insert the new category in the level we want.
+# NOTE: that we converted the props of "org:" to a list
+#
+# Example:
+# :tree:
+#    org:
+#      - env:
+#          rhel_os:
+#            - end
+#
+#      - app1_env:
+#          - end
+# 
+# This would result in a Hostgroup tree as:
+#
+#
+# |_ my_organization
+#    |_ DEV       (lifecycle_environment: DEV)
+#    |  |_ RHEL6    (content_view: CV-RHEL6)
+#    |  |_ RHEL7    (content_view: CV-RHEL7)
+#    |_ TEST
+#    |  |_ RHEL6
+#    |  |_ RHEL7
+#    |_ PROD
+#    |  |_ RHEL6
+#    |  |_ RHEL7
+#    |
+#    |_ APP1-DEV    (lifecycle_environment: APP1-DEV, content_view: CV-APP1)
+#    |_ APP1-TEST   (...)
+#    |_ APP1-PROD
+#
 :tree:
-  start:
-    site-dcd:
+  org:
+    location:
       - baseline_envs:
           rhel_types:
             - end
-      - hadoop_envs:
+      - app1_envs:
           rhel_types:
             - end
 
 
-# NEED SOME WAY TO ADD SPECIFICS TO A COMBO
-# # FOR INSTANCE: 
-# # if HG~= DCD01-CB-TEST
-# # should have a specific Capsule!
+# COMBOS
+# ======
+# Sometimes we want a property only to be added if a certain combination is fulfilled.
+# A good example is the Activation Keys
 #
+# For instance, with our example
+# We want the Hostgroup /my_organization/DEV/RHEL6 hostgroup
+# to use the activation key "AK-CV-RHEL6-DEV"
 #
+# We can't apply it to the DEV category, as that would mean every DEV derivative
+# would get the activation key, which would be wrong for the /my_organization/DEV/RHEL7 hostgroup.
+# Neither can we apply it to the RHEL6 category, as that would mean that the lifecycle environment would be wrong.
+#
+# What we want is the combination of the "env: DEV" and "rhel_os: RHEL6" 
+# to get the activation key "AK-CV-RHEL6-DEV"
+#
+# Thus, we create a combo
+#
+# :combos:
+#  - name: activation key for RHEL6 development hosts
+#    categories:
+#      - rhel_os: "RHEL6"
+#      - env: "DEV"
+#    parameters:
+#      - activation_key: "AK-CV-RHEL6-DEV"
+#
+# If you have more than one activation key that should be applied, you create a list
+#
+#    parameters:
+#      - activation_key:
+#          - "AK-RHEL"
+#          - "AK-CV-APP1"
+# 
+# If you want something to apply to multiple of the same category, with another category
+# you create a list for the Category with multiple variations.
+#
+# In this example we want to set a specific Capsule for all non-prod environments that should
+# be placed in the DMZ.
+#
+# :combos:
+#  - name: set Capsule for DMZ non-prod servers
+#    categories:
+#      - env: 
+#          - "DEV" 
+#          - "TEST" 
+#      - location:
+#          - "DMZ"
+#    parameters:
+#      - content_source: "capsule.dev.dmz.example.com"
+#
+:combos:
+ - name: activation key DEV RHEL6
+   categories:
+     - baseline_envs: DEV
+     - rhel_types: rhel6
+   parameters:
+     - activation_key: 
+         - "AK-CV-RHEL6-DEV"
+         - "AK-RHEL"
+
+ - name: activation key DEV RHEL6
+   categories:
+     - baseline_envs: DEV
+     - rhel_types: rhel6
+   parameters:
+     - activation_key: 
+         - "AK-CV-RHEL6-TEST"
+         - "AK-RHEL"
+
+ - name: activation key PREPROD RHEL6
+   categories:
+     - baseline_envs: PREPROD
+     - rhel_types: rhel6
+   parameters:
+     - activation_key: 
+         - "AK-CV-RHEL6-PREPROD"
+         - "AK-RHEL"
+
+ - name: activation key PROD RHEL6
+   categories:
+     - baseline_envs: PROD
+     - rhel_types: rhel6
+   parameters:
+     - activation_key: "AK-CV-RHEL6-PROD"
+
+ - name: DC01 and DEV
+   categories:
+     - baseline_envs:
+       - DEV
+       - TEST
+       - PREPROD
+     - site-dcd:
+       -  DC01
+     - rhel_types: rhel6
+   parameters:
+     - content_source: capsule.example.com
+
+ - name: DC location 
+   categories:
+     - location:
+       - DC01
+   parameters:
+     - location: DC01
+
+
+
+
 
 
