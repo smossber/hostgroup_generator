@@ -185,37 +185,6 @@ def depth (a)
 end
 
 
-# Array. [0] will be the first level, containing an Array of Hashes with the different Hostgroups of Hostgroups
-# [1] will have the next level that should get added to each Hostgroup in [0]
-# [2] will have the next level that should be added to each Hostgroup in [0].each[1]
-# [3] will have the next level that should be added to each Hostgroup in [0].each [1].each [2].each ??
-#
-#
-@tree_structure=[]
-
-@level = 0
-# Runs through the setup.
-# Since we want a tree
-def set_tree_structure(a)
-  category, next_level = a.first
-  return 0 unless a.is_a?(Hash)
-
-  puts "All hostgroups in category \"#{category}\""
-  hostgroups=[] # Array of hashes, to be entered in the levels array
-
-  @categories[category].each do |hostgroup|
-    if hostgroup.is_a?(Hash)
-      hostgroup_name, hostgroup_props = hostgroup.first
-      puts "#{hostgroup_name} "
-    else
-      puts hostgroup
-    end
-    hostgroups << hostgroup
-  end
-  @tree_structure << hostgroups
-  @level = @level + 1
-  set_tree_structure(next_level)
-end
 
 
 
@@ -500,7 +469,6 @@ if @yaml.has_key?(:tree) and @yaml[:tree].is_a?(Hash)
   end
 end
 
-#set_tree_structure(tree)
 
 
 
