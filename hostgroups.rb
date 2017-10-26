@@ -177,9 +177,11 @@ if @yaml.has_key?(:categories) and @yaml[:categories].is_a?(Hash)
 end
 
 puts "Categories:"
+puts "==========="
 @categories.each do |category|
   puts category[0]
 end
+puts ""
 
             # Workaround for Activation Keys
             # This is a host param ['kt_activation_keys']
@@ -378,7 +380,6 @@ def get_property_id(property_type, value, column=nil)
         return property.first['id']
 
     end 
-# puts JSON.pretty_generate(property) 
 end 
 
 def get_hostgroup(name)
@@ -501,12 +502,12 @@ if @options[:teardown]
 end
 
 # Start Hostgroup Loop
-    deep = 0  
-    loop_branch(tree, deep ) 
+deep = 0  
+loop_branch(tree, deep ) 
 
 @hostgroups = []
-@hostgroups = get_all_hostgroups
 def find_matching_hostgroups(combo)
+  @hostgroups = get_all_hostgroups
 	if combo.is_a?(Array)
         combo_hostgroups = []
         combo_count = combo.count
@@ -554,6 +555,7 @@ end
 def combos()
     @combos = []
     if @yaml.has_key?(:combos) and @yaml[:combos].is_a?(Array)
+        puts ""
         puts "Combos:"
         puts "======"
         @yaml[:combos].each do |combo|
