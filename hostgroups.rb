@@ -61,9 +61,6 @@ optparse = OptionParser.new do |opts|
   opts.on("-U", "--uri=URI", "URI to the Satellite") do |u|
     @options[:uri] = u
   end
-  opts.on("-t", "--timeout=TIMEOUT", OptionParser::DecimalInteger, "Timeout value in seconds for any API calls. -1 means never timeout") do |t|
-    @options[:timeout] = t
-  end
   opts.on("-u", "--user=USER", "User to log in to Satellite") do |u|
     @options[:user] = u
   end
@@ -73,33 +70,17 @@ optparse = OptionParser.new do |opts|
   opts.on("-o", "--organization-id=ID", "ID of the Organization to manage CVs in") do |o|
     @options[:org] = o
   end
-  opts.on("-k", "--keep=NUM", OptionParser::DecimalInteger, "how many unused versions should be kept") do |k|
-    @options[:keep] = k
-  end
   opts.on("-c", "--config=FILE", "configuration in YAML format") do |c|
     @options[:yamlfile] = c
   end
   opts.on("-l", "--to-lifecycle-environment=ID", OptionParser::DecimalInteger, "which LE should the promote be done to") do |l|
     @options[:lifecycle] = l
   end
-  opts.on("-d", "--description=STRING", "Description to use for publish operations") do |d|
-    @options[:description] = d
-  end
   opts.on("-n", "--noop", "do not actually execute anything") do
     @options[:noop] = true
   end
   opts.on("-f", "--force", "force actions that otherwise would have been skipped") do
     @options[:force] = true
-  end
-  opts.on("--wait", "wait for started tasks to finish") do
-    @options[:wait] = true
-  end
-  opts.on("--sequential [NUM]", OptionParser::DecimalInteger, "wait for each (or NUM) started task(s) to finish before starting the next one") do |s|
-    @options[:wait] = true
-    @options[:sequential] = s || 1
-  end
-  opts.on("--checkrepos", "check repository content was changed before publish") do
-    @options[:checkrepos] = true
   end
   opts.on("-v", "--verbose", "Get verbose logs from cvmanager") do
     @options[:verbose] = true
@@ -468,7 +449,6 @@ if @yaml.has_key?(:tree) and @yaml[:tree].is_a?(Hash)
     tree[key] = val
   end
 end
-
 
 
 
